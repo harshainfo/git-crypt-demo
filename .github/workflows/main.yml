@@ -3,22 +3,44 @@ name: Check Environment Secret
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main" , "secret-branch"]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main" , "secret-branch" ]
 
 jobs:
 
-  build:
+  unlock-repository:
     runs-on: ubuntu-latest
     
     steps:
     - uses: actions/checkout@v3
     
-    - name: Check Environment Secret
-      env:
-        MY_SECRET: ${{ secrets.MY_SECRET }}
+    - name: Install git-crypt
       run: |
+        sudo apt-get update
+        sudo apt-get install -y git-crypt
+        
+    - name: Download infrastructure.key from S3
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+    - run: |
+        aws s3 cp s3://elevate-infrastructure/git-crypt-key .
+        
+    - name: Unlock Repository
+      run: |
+        git-crypt unlock ./git-crypt-key
+        
+    - name: Read secret
+      id: api_key
+      run: |
+        echo "::set-output name=secret::$(grep -o 'secret=.*' api.key | cut -d'=' -f2)"
+    
+    - name: Check Secret
+      run: |
+        MY_SECRET=$(grep -o 'secret=.*' api.key | cut -d'=' -f2)
         if [ "$MY_SECRET" = "SECRET1" ]; then
           echo "Environment secret is correct. Build will succeed."
           exit 0
